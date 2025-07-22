@@ -1,75 +1,108 @@
 # -*- coding: utf-8 -*-
 """
-Configuration actualisée avec les tarifs 2025 (source : photovoltaique.info)
+Configuration actualisée 2025 - Sources officielles (photovoltaique.info + CRE)
 Dernière vérification : juillet 2025
 """
 
-# -------------------------------
-# 1. TARIFS OFFICIELS 2025 (€)
-# -------------------------------
 TARIFFS = {
-    # Électricité achetée (moyenne nationale)
+    # ---------------------------------------------------
+    # 1. TARIFS ÉLECTRICITÉ (€)
+    # ---------------------------------------------------
     "electricity": {
-        "residential": 0.20,  # Prix moyen TTC (hors abonnement)
-        "evolution_rate": 0.03  # Taux d'augmentation annuel estimé
-    },
-    
-    # Vente du surplus (tarifs EDF OA Juin 2025)
-    "surplus_sell": {
-        "<=3_kWc": 0.04,  # Toutes orientations, €/kWh
-        "3_9_kWc": 0.04,
-        "9_36_kWc": 0.0731,
-        "36_100_kWc": 0.0731
-    },
-    
-    # Coûts d'installation (moyenne marché 2024)
-    "installation_costs": {
-        "pv": {
-            "residential": {
-                "1_3_kWc": 2500,  # €/kWc
-                "3_9_kWc": 2200,
-                "9_36_kWc": 1800
-            },
-            "battery_included": 0.15  # Surcoût si batterie intégrée (%)
-        },
-        "battery": {
-            "lithium": 600,  # €/kWh (capacité utile)
-            "lifecycle": 6000  # Nombre de cycles typiques
+        "purchase_price": 0.20,  # Prix moyen TTC du kWh acheté
+        "evolution_rate": 0.03,  # Taux d'augmentation annuel
+        "subscription": {        # Coûts fixes (€/an)
+            "6kVA": 120,
+            "9kVA": 150
         }
     },
     
-    # Aides financières (2025)
-    "subsidies": {
-        "prime_autoconsommation": {  # Prime à l'installation (€/kWc)
-            "0_3_kWc": 80,
-            "3_9_kWc": 80,
-            "9_36_kWc": 180,
-            "36_100_kWc": 90
+    # ---------------------------------------------------
+    # 2. TARIFS DE RACHAT (€/kWh)
+    # ---------------------------------------------------
+    "surplus": {
+        "residential": {
+            "≤3kWc": 0.04,
+            "3-9kWc": 0.04,
+            "9-36kWc": 0.0731,
+            "36-100kWc": 0.0731
         },
-        "tva_reduced": 0.10  # TVA à 10% pour <3kWc
+        "collective": {  # Ajout pour les projets collectifs
+            "≤3kWc": 0.10,
+            "3-36kWc": 0.08
+        }
+    },
+    
+    # ---------------------------------------------------
+    # 3. AIDES & FINANCEMENT (€)
+    # ---------------------------------------------------
+    "subsidies": {
+        "autoconsommation": {
+            "≤3kWc": 80,
+            "3-9kWc": 80,
+            "9-36kWc": 180,
+            "36-100kWc": 90
+        },
+        "local_bonus": {  # Primes locales optionnelles
+            "Île-de-France": 200,
+            "Occitanie": 150
+        },
+        "tva_reduced": 0.10  # Applicable ≤3kWc
+    },
+    
+    # ---------------------------------------------------
+    # 4. COÛTS D'INSTALLATION (€)
+    # ---------------------------------------------------
+    "costs": {
+        "pv": {
+            "≤3kWc": 2500,
+            "3-9kWc": 2200,
+            "9-36kWc": 1800,
+            "battery_surcharge": 0.15  # % supplémentaire
+        },
+        "battery": {
+            "lithium": {
+                "price_per_kwh": 600,
+                "lifespan": 10,  # années
+                "warranty": 5     # années garantie
+            }
+        }
     }
 }
 
-# -------------------------------
-# 2. EXEMPLES DE CALCUL AUTOMATISÉ
-# -------------------------------
-def get_surplus_tariff(pv_power_kWc):
-    """Retourne le tarif de rachat selon la puissance installée."""
-    if pv_power_kWc <= 3:
-        return TARIFFS["surplus_sell"]["<=3_kWc"]
-    elif 3 < pv_power_kWc <= 9:
-        return TARIFFS["surplus_sell"]["3_9_kWc"]
-    # [...] autres tranches
+# ---------------------------------------------------
+# FONCTIONS UTILITAIRES
+# ---------------------------------------------------
+def get_surplus_tariff(pv_power: float, is_collective: bool = False) -> float:
+    """Retourne le tarif de rachat adapté au projet."""
+    tariff_table = TARIFFS["surplus"]["collective"] if is_collective else TARIFFS["surplus"]["residential"]
+    
+    if pv_power <= 3:
+        return tariff_table["≤3kWc"]
+    elif 3 < pv_power <= 9:
+        return tariff_table.get("3-9kWc", tariff_table["≤3kWc"])  # Fallback sécurisé
+    elif 9 < pv_power <= 36:
+        return tariff_table["9-36kWc"]
+    else:
+        return tariff_table.get("36-100kWc", 0)  # Retourne 0 si non éligible
 
-def get_installation_cost(pv_power_kWc, with_battery=False):
-    """Calcule le coût total d'installation."""
-    if pv_power_kWc <= 3:
-        base_cost = pv_power_kWc * TARIFFS["installation_costs"]["pv"]["residential"]["1_3_kWc"]
-    elif 3 < pv_power_kWc <= 9:
-        base_cost = pv_power_kWc * TARIFFS["installation_costs"]["pv"]["residential"]["3_9_kWc"]
-    # [...] autres tranches
+def estimate_installation_cost(pv_power: float, battery_size: float = 0) -> dict:
+    """Calcule le devis détaillé."""
+    costs = TARIFFS["costs"]
     
-    if with_battery:
-        base_cost *= (1 + TARIFFS["installation_costs"]["pv"]["battery_included"])
+    # Coût PV de base
+    if pv_power <= 3:
+        pv_cost = pv_power * costs["pv"]["≤3kWc"]
+    elif 3 < pv_power <= 9:
+        pv_cost = pv_power * costs["pv"]["3-9kWc"]
+    else:
+        pv_cost = pv_power * costs["pv"]["9-36kWc"]
     
-    return base_cost
+    # Coût batterie
+    battery_cost = battery_size * costs["battery"]["lithium"]["price_per_kwh"]
+    
+    return {
+        "pv": pv_cost,
+        "battery": battery_cost,
+        "total": pv_cost * (1 + costs["pv"]["battery_surcharge"]) + battery_cost
+    }
