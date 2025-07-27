@@ -56,6 +56,23 @@ def main():
         st.header("Paramètres du Projet")
         location = get_location_input()
         household = get_household_input()
+        
+    # Nouvelle section dans le sidebar
+st.sidebar.header("🌤️ Données Météo")
+lat = st.sidebar.number_input("Latitude", value=48.85)
+lon = st.sidebar.number_input("Longitude", value=2.35)
+year = st.sidebar.selectbox("Année de référence", range(2010, 2021), index=10)
+
+# Bouton de récupération
+if st.sidebar.button("Charger les données météo"):
+    with st.spinner("Récupération des données PVGIS..."):
+        weather_data = fetch_pvgis_historical(lat, lon, year)
+        st.session_state.weather_data = weather_data
+        st.success(f"Données chargées pour {year} !")
+
+# Affichage d'aperçu
+if "weather_data" in st.session_state:
+    st.line_chart(st.session_state.weather_data.set_index("time")["GHI"])
     
     # Onglets principaux
     tab1, tab2, tab3 = st.tabs(["Consommation", "Production PV", "Rentabilité"])
