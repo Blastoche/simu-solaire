@@ -4,6 +4,9 @@ Configuration actualisée 2025 - Sources officielles (photovoltaique.info + CRE)
 Dernière vérification : juillet 2025
 """
 
+PVGIS_BASE_URL = "https://re.jrc.ec.europa.eu/api/v5_2/PVcalc"
+HEADERS = {"User-Agent": "SolarSimulator/1.0 (contact@votredomaine.com)"}
+
 TARIFFS = {
     # ---------------------------------------------------
     # 1. TARIFS ÉLECTRICITÉ (€)
