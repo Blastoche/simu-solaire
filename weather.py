@@ -1,66 +1,44 @@
 import requests
 import pandas as pd
-from config.api import PVGIS_BASE_URL, HEADERS
+from pvlib import location, irradiance
+from config.api import PVGIS_URL, OPENWEATHER_URL, OPENWEATHER_API_KEY, HEADERS
+import streamlit as st
+from typing import Optional, Dict
 
-def fetch_pvgis_historical(lat: float, lon: float, year: int = 2020):
-    """
-    Récupère les données météo historiques de PVGIS (année typique)
-    Retourne un DataFrame avec : GHI (W/m²), Température (°C), etc.
-    """
-    params = {
-        "lat": lat,
-        "lon": lon,
-        "startyear": year,
-        "endyear": year,
-        "outputformat": "json",
-        "pvcalculation": 0  # Désactive le calcul PV pour avoir les données brutes
-    }
-    
+@st.cache_data(ttl=3600)  # Cache de 1 heure
+def fetch_pvgis_historical(lat: float, lon: float, year: int = 2020) -> Optional[pd.DataFrame]:
+    """Récupère les données PVGIS avec gestion d'erreur et cache"""
     try:
-        response = requests.get(PVGIS_BASE_URL, params=params, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Transformation en DataFrame
-        df = pd.DataFrame(data["outputs"]["hourly"])
-        df["time"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M")
-        return df[["time", "GHI", "T2m"]]  # Global Horizontal Irradiation, Température à 2m
-        
-    except Exception as e:
-        raise Exception(f"Erreur PVGIS : {str(e)}")
-
-
-class WeatherFetcher:
-    BASE_URLS = {
-        "PVGIS": "https://re.jrc.ec.europa.eu/api/v5_2/PVcalc",
-        "OpenWeather": "https://api.openweathermap.org/data/3.0/onecall"
-    }
-
-    def __init__(self, api_keys):
-        self.api_keys = api_keys
-
-    def fetch_historical(self, lat, lon, year):
-        """Récupère les données PVGIS"""
         params = {
             "lat": lat, "lon": lon,
             "startyear": year, "endyear": year,
-            "outputformat": "json"
+            "outputformat": "json",
+            "pvcalculation": 0
         }
-        response = requests.get(self.BASE_URLS["PVGIS"], params=params)
-        return self._parse_pvgis(response.json())
-
-    def _parse_pvgis(self, data):
-        """Transforme la réponse PVGIS en DataFrame"""
-        df = pd.DataFrame(data["outputs"]["hourly"])
+        response = requests.get(PVGIS_URL, params=params, headers=HEADERS, timeout=15)
+        response.raise_for_status()
+        
+        df = pd.DataFrame(response.json()["outputs"]["hourly"])
         df["time"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M")
-        return df[["time", "GHI", "T2m"]]  # Irradiation + température
+        return df[["time", "GHI", "T2m", "RH"]]  # Ajout de l'humidité relative
+        
+    except Exception as e:
+        st.error(f"Erreur PVGIS : {str(e)}")
+        return None
 
-    def fetch_forecast(self, lat, lon):
-        """Récupère les prévisions OpenWeather"""
+@st.cache_data(ttl=1800)  # Cache de 30 minutes
+def fetch_openweather_forecast(lat: float, lon: float) -> Optional[Dict]:
+    """Récupère les prévisions OpenWeatherMap"""
+    try:
         params = {
             "lat": lat, "lon": lon,
             "exclude": "minutely,daily",
-            "appid": self.api_keys["openweather"]
+            "appid": OPENWEATHER_API_KEY,
+            "units": "metric"
         }
-        response = requests.get(self.BASE_URLS["OpenWeather"], params=params)
-        return self._parse_owm(response.json())
+        response = requests.get(OPENWEATHER_URL, params=params, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.warning(f"Prévisions non disponibles : {str(e)}")
+        return None
