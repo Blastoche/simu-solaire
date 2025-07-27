@@ -69,7 +69,104 @@ TARIFFS = {
         }
     }
 }
+# -*- coding: utf-8 -*-
+"""
+Profils de consommation des appareils électriques (données 2025)
+Sources : ADEME, UFC-Que Choisir, fabricants
+"""
 
+APPLIANCES = {
+    # ---------------------------------------------------
+    # 1. GROS ÉLECTROMÉNAGER (USAGE PONCTUEL)
+    # ---------------------------------------------------
+    "heavy_usage": {
+        "Machine à laver": {
+            "power_kw": 1.2,      # Puissance moyenne (cycle standard)
+            "eco_power_kw": 0.8,   # Puissance en mode éco
+            "usage_weekly": 4,     # Nombre moyen d'utilisations
+            "duration_hours": 1.8, # Durée moyenne (h)
+            "standby_w": 1.5       # Veille (W)
+        },
+        "Sèche-linge": {
+            "power_kw": 2.8,      # Résistance
+            "heat_pump_kw": 1.2,  # Si modèle pompe à chaleur
+            "usage_weekly": 3,
+            "duration_hours": 2.5
+        },
+        "Lave-vaisselle": {
+            "power_kw": 1.5,
+            "eco_power_kw": 0.9,
+            "usage_weekly": 5,
+            "duration_hours": 1.5
+        }
+    },
+
+    # ---------------------------------------------------
+    # 2. ÉLECTROMÉNAGER CONTINU
+    # ---------------------------------------------------
+    "continuous": {
+        "Réfrigérateur": {
+            "class_A+": {"power_kw": 0.10, "hours_day": 24},
+            "class_A++": {"power_kw": 0.07, "hours_day": 24},
+            "américain": {"power_kw": 0.25, "hours_day": 24}
+        },
+        "Congélateur": {
+            "coffre": {"power_kw": 0.12, "hours_day": 24},
+            "armoire": {"power_kw": 0.15, "hours_day": 24}
+        }
+    },
+
+    # ---------------------------------------------------
+    # 3. PETIT ÉLECTROMÉNAGER
+    # ---------------------------------------------------
+    "small_appliances": {
+        "Multimédia": {
+            "Box internet": {"power_kw": 0.015, "hours_day": 24},
+            "TV LED 55\"": {"power_kw": 0.12, "hours_day": 4},
+            "PC portable": {"power_kw": 0.06, "hours_day": 6}
+        },
+        "Cuisine": {
+            "Grille-pain": {"power_kw": 1.2, "duration_mins": 5, "usage_weekly": 3},
+            "Bouilloire": {"power_kw": 2.0, "duration_mins": 4, "usage_weekly": 7}
+        }
+    },
+
+    # ---------------------------------------------------
+    # 4. CHAUFFAGE/CLIM
+    # ---------------------------------------------------
+    "thermal": {
+        "Radiateur électrique": {
+            "1000W": {"power_kw": 1.0, "usage_hours_day": 8},
+            "2000W": {"power_kw": 2.0, "usage_hours_day": 6}
+        },
+        "Climatisation": {
+            "split_12000BTU": {"power_kw": 1.2, "usage_hours_day": 5},
+            "inverter": {"power_kw": 0.8, "usage_hours_day": 7}
+        }
+    }
+}
+
+# ---------------------------------------------------
+# FONCTIONS UTILITAIRES
+# ---------------------------------------------------
+def get_appliance_consumption(appliance_type: str, model: str = None) -> dict:
+    """Retourne la consommation d'un appareil avec gestion des sous-catégories."""
+    for category in APPLIANCES.values():
+        if appliance_type in category:
+            if model and isinstance(category[appliance_type], dict):
+                return category[appliance_type].get(model, category[appliance_type])
+            return category[appliance_type]
+    return {}
+
+def estimate_yearly_consumption(appliance_data: dict) -> float:
+    """Calcule la consommation annuelle en kWh."""
+    if "hours_day" in appliance_data:  # Appareil continu
+        return appliance_data["power_kw"] * appliance_data["hours_day"] * 365
+    else:  # Appareil ponctuel
+        return (appliance_data["power_kw"] * 
+                appliance_data.get("duration_hours", 1) * 
+                appliance_data["usage_weekly"] * 52)
+        
 # ---------------------------------------------------
 # FONCTIONS UTILITAIRES
 # ---------------------------------------------------
@@ -106,3 +203,4 @@ def estimate_installation_cost(pv_power: float, battery_size: float = 0) -> dict
         "battery": battery_cost,
         "total": pv_cost * (1 + costs["pv"]["battery_surcharge"]) + battery_cost
     }
+
