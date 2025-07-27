@@ -4,8 +4,12 @@ Configuration actualisée 2025 - Sources officielles (photovoltaique.info + CRE)
 Dernière vérification : juillet 2025
 """
 
-PVGIS_BASE_URL = "https://re.jrc.ec.europa.eu/api/v5_2/PVcalc"
-HEADERS = {"User-Agent": "SolarSimulator/1.0 (contact@votredomaine.com)"}
+PVGIS_URL = "https://re.jrc.ec.europa.eu/api/v5_2/PVcalc"
+OPENWEATHER_URL = "https://api.openweathermap.org/data/3.0/onecall"
+HEADERS = {"User-Agent": "SolarSimulator/1.0 (contact@example.com)"}
+
+# Clé à obtenir sur https://openweathermap.org/api
+OPENWEATHER_API_KEY = "votre_clé_api"  # À remplacer
 
 TARIFFS = {
     # ---------------------------------------------------
