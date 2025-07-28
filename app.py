@@ -1,98 +1,134 @@
+# solar_simulator/app.py
 import streamlit as st
-from modules.consumption import HouseholdConsumption
-from modules.pv_production import PVSystem
-from modules.economics import FinancialAnalysis
-from config import TARIFFS, DEFAULT_APPLIANCES
+import pandas as pd
+import numpy as np
+from datetime import time
+from modules.consumption import ConsumptionSimulator
+from modules.pv_production import PVSimulator
+from modules.weather import fetch_pvgis_historical, fetch_openweather_forecast
+from modules.economics import FinancialAnalyzer
+from config.tariffs import TARIFFS
+from config.appliances import APPLIANCES
 
-# Section données météo
+# ======================
+# CONFIGURATION DE LA PAGE
+# ======================
+st.set_page_config(
+    page_title="Simulateur Solaire Pro",
+    page_icon="☀️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-def get_weather_params():
-    st.sidebar.header("🌤️ Données Météo")
-    
-    # 1. Localisation
-    mode = st.sidebar.radio("Mode de localisation", ["Adresse", "Coordonnées"])
-    if mode == "Adresse":
-        address = st.sidebar.text_input("Adresse complète")
-        lat, lon = geocode(address)  # À implémenter
-    else:
-        lat = st.sidebar.number_input("Latitude", value=48.85)
-        lon = st.sidebar.number_input("Longitude", value=2.35)
-    
-    # 2. Type de données
-    data_type = st.sidebar.selectbox(
-        "Source météo",
-        ["Historique (PVGIS)", "Prévisions (OpenWeatherMap)"]
-    )
-    
-    # 3. Paramètres avancés
-    with st.sidebar.expander("⚙️ Options avancées"):
-        if data_type == "Historique":
-            year = st.selectbox("Année de référence", range(2005, 2024), index=18)
-        resolution = st.radio("Résolution", ["Horaire", "Quotidienne"])
-    
-    return {
-        "lat": lat,
-        "lon": lon,
-        "data_type": data_type,
-        "year": year if data_type == "Historique" else None,
-        "resolution": resolution
-    }
+# ======================
+# FONCTIONS AUXILIAIRES
+# ======================
+def geocode_address(address):
+    """Géocodage via API Nominatim"""
+    # [...] Implémentation complète
 
+def display_results(results):
+    """Affiche les résultats avec mise en forme avancée"""
+    # [...] Graphiques interactifs + KPIs
+
+# ======================
+# INTERFACE UTILISATEUR
+# ======================
 def main():
-    
-# Intégration des données météo
-    weather_params = get_weather_params()
-    pv_data = PVSimulator(weather_params).fetch_production_data()
+    st.title("📊 Simulateur Solaire Complet")
 
-    # Configuration de la page
-    st.set_page_config(
-        page_title="Simulateur Solaire Intelligent",
-        layout="wide",
-        page_icon="☀️"
-    )
-    
-    # Sidebar pour les entrées utilisateur
+    # ----- SIDEBAR -----
     with st.sidebar:
-        st.header("Paramètres du Projet")
-        location = get_location_input()
-        household = get_household_input()
+        st.header("📍 Localisation")
+        location_mode = st.radio("Mode", ["Coordonnées", "Adresse"])
         
-    # Nouvelle section dans le sidebar
-st.sidebar.header("🌤️ Données Météo")
-lat = st.sidebar.number_input("Latitude", value=48.85)
-lon = st.sidebar.number_input("Longitude", value=2.35)
-year = st.sidebar.selectbox("Année de référence", range(2010, 2021), index=10)
+        if location_mode == "Coordonnées":
+            lat = st.number_input("Latitude", value=48.8534, format="%.6f")
+            lon = st.number_input("Longitude", value=2.3488, format="%.6f")
+        else:
+            address = st.text_input("Adresse")
+            lat, lon = geocode_address(address)
 
-# Bouton de récupération
-if st.sidebar.button("Charger les données météo"):
-    with st.spinner("Récupération des données PVGIS..."):
-        weather_data = fetch_pvgis_historical(lat, lon, year)
-        st.session_state.weather_data = weather_data
-        st.success(f"Données chargées pour {year} !")
+        st.header("🌤️ Source Météo")
+        weather_source = st.selectbox("Choix", ["Historique PVGIS", "Prévisions OpenWeather"])
 
-# Affichage d'aperçu
-if "weather_data" in st.session_state:
-    st.line_chart(st.session_state.weather_data.set_index("time")["GHI"])
-    
-    # Onglets principaux
-    tab1, tab2, tab3 = st.tabs(["Consommation", "Production PV", "Rentabilité"])
-    
+    # ----- ONGLETS PRINCIPAUX -----
+    tab1, tab2, tab3 = st.tabs(["🏠 Logement", "🔌 Appareils", "📊 Résultats"])
+
     with tab1:
-        consumption = HouseholdConsumption(household).calculate()
-        display_consumption(consumption)
-    
-    with tab2:
-        pv_system = PVSystem(location, household).calculate()
-        display_production(pv_system)
-    
-    with tab3:
-        analysis = FinancialAnalysis(consumption, pv_system, TARIFFS).analyze()
-        display_economics(analysis)
+        # Section détaillée logement
+        col1, col2 = st.columns(2)
+        with col1:
+            surface = st.number_input("Surface (m²)", min_value=20, value=80)
+            dpe = st.selectbox("DPE", ["A", "B", "C", "D", "E", "F", "G"])
+        with col2:
+            occupants = st.number_input("Occupants", min_value=1, value=3)
+            heating_type = st.selectbox("Chauffage", ["Gaz", "Électrique", "PAC"])
 
-def get_location_input():
-    """Récupère la localisation via coordonnées ou code postal."""
-    # ... (votre code existant adapté)
-    return {"latitude": lat, "longitude": lon}
+    with tab2:
+        # Sélection interactive des appareils
+        selected_appliances = []
+        for category, devices in APPLIANCES.items():
+            with st.expander(f"🔧 {category}"):
+                for device, models in devices.items():
+                    if st.checkbox(device):
+                        model = st.selectbox(
+                            f"Modèle {device}",
+                            list(models.keys())
+                        )
+                        usage = st.slider(
+                            f"Utilisation/semaine {device}",
+                            1, 20, 3
+                        )
+                        selected_appliances.append({
+                            "name": device,
+                            "model": model,
+                            "usage": usage
+                        })
+
+    # ======================
+    # SIMULATION
+    # ======================
+    if st.button("🚀 Lancer la simulation", type="primary"):
+        with st.spinner("Calcul en cours..."):
+            try:
+                # 1. Données météo
+                if weather_source == "Historique PVGIS":
+                    weather_data = fetch_pvgis_historical(lat, lon)
+                else:
+                    weather_data = fetch_openweather_forecast(lat, lon)
+
+                # 2. Simulation PV
+                pv_system = PVSimulator(
+                    location={"lat": lat, "lon": lon},
+                    system_params={
+                        "power_kw": st.session_state.get("pv_power", 3.0),
+                        "tilt": st.session_state.get("tilt", 30),
+                        "azimuth": 180
+                    }
+                )
+                pv_prod = pv_system.calculate(weather_data)
+
+                # 3. Simulation Consommation
+                consumption = ConsumptionSimulator({
+                    "appliances": selected_appliances,
+                    "surface": surface,
+                    "dpe": dpe,
+                    "occupants": occupants
+                }).calculate()
+
+                # 4. Analyse Financière
+                analysis = FinancialAnalyzer(
+                    pv_production=pv_prod,
+                    consumption=consumption
+                ).analyze()
+
+                # Affichage
+                with tab3:
+                    display_results(analysis)
+
+            except Exception as e:
+                st.error(f"Erreur : {str(e)}")
 
 if __name__ == "__main__":
     main()
