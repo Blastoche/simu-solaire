@@ -1,0 +1,37 @@
+{
+    "A": {
+        "coeff": 20,
+        "description": "Bâtiment très performant",
+        "color": "#2ECC71"
+    },
+    "B": {
+        "coeff": 25,
+        "description": "Bâtiment performant",
+        "color": "#27AE60"
+    },
+    "C": {
+        "coeff": 35,
+        "description": "Bâtiment assez performant",
+        "color": "#F1C40F"
+    },
+    "D": {
+        "coeff": 50,
+        "description": "Bâtiment moyen",
+        "color": "#E67E22"
+    },
+    "E": {
+        "coeff": 70,
+        "description": "Bâtiment énergivore",
+        "color": "#D35400"
+    },
+    "F": {
+        "coeff": 90,
+        "description": "Bâtiment très énergivore",
+        "color": "#E74C3C"
+    },
+    "G": {
+        "coeff": 120,
+        "description": "Bâtiment extrêmement énergivore",
+        "color": "#C0392B"
+    }
+}
