@@ -1,43 +1,30 @@
-# solar_simulator/modules/consumption.py
+# -*- coding: utf-8 -*-
+"""
+Modélisation de la consommation électrique
+"""
 import numpy as np
-from typing import List, Dict
+import pandas as pd
+from config.appliances import APPLIANCES
 
 class ConsumptionSimulator:
-    def __init__(self, appliances: List[Dict]):
-        self.appliances = appliances
-        self.hours_per_year = 8760
-    
-    def run(self) -> Dict:
-        """Génère le profil de consommation annuel"""
-        hourly_consumption = np.zeros(self.hours_per_year)
-        
-        for app in self.appliances:
-            profile = self._generate_appliance_profile(app)
-            hourly_consumption += profile
-        
+    def __init__(self, appliances: list, dpe: str, occupants: int):
+        self.appliances = appliances  # Liste des appareils
+        self.dpe_coeff = {"A": 20, "B": 25, ...}[dpe]  # kW/m²/an
+        self.occupants = occupants
+
+    def calculate(self) -> dict:
+        """Génère un profil horaire sur 1 an"""
+        base_load = self._calculate_dpe_load()
+        appliance_load = self._calculate_appliances_load()
         return {
-            "hourly": hourly_consumption,
-            "daily": self._aggregate_daily(hourly_consumption)
+            "hourly": base_load + appliance_load,
+            "annual_kwh": (base_load + appliance_load).sum()
         }
-    
-    def _generate_appliance_profile(self, appliance: Dict) -> np.array:
-        """Crée un profil horaire pour un appareil"""
-        profile = np.zeros(self.hours_per_year)
-        model = appliance["model"]
-        power = APPLIANCE_DEFAULTS[appliance["name"]]["models"][model]
-        
-        # Application du planning
-        for week in range(52):
-            for (start, end) in appliance["schedule"]:
-                day = self._select_usage_day(week)
-                start_hour = int(day * 24 + start)
-                end_hour = int(day * 24 + end)
-                profile[start_hour:end_hour] = power["eco_power"] if appliance["eco_mode"] else power["power"]
-        
-        return profile
-    
-    def _select_usage_day(self, week: int) -> int:
-        """Répartit les utilisations sur la semaine"""
-        # Algorithme de répartition réaliste
-        base_day = (week * 3) % 7  # Variation sur l'année
-        return min(base_day, 6)  # 0=lundi, 6=dimanche
+
+    def _calculate_appliances_load(self) -> np.array:
+        """Calcule la charge des appareils"""
+        load = np.zeros(8760)  # 1 année en heures
+        for app in self.appliances:
+            profile = self._generate_profile(app)
+            load += profile
+        return load
