@@ -1,6 +1,9 @@
-from .caching import hash_parameters, cached_simulation_memory, save_to_cache
+from .database import DatabaseManager
+from .caching import hash_parameters
 import logging
 
+# Initialisation
+db_manager = DatabaseManager()
 logger = logging.getLogger(__name__)
 
 def simulate_pv_system(
@@ -8,12 +11,13 @@ def simulate_pv_system(
     system: dict,
     weather: pd.DataFrame,
     use_cache: bool = True,
+    use_db: bool = True,
     **kwargs
 ) -> dict:
     """
-    Version avec cache et logging
+    Version finale avec cache + SGBD
     """
-    # Génération de la signature unique
+    # Génération du hash unique
     params = {
         "location": location,
         "system": system,
@@ -21,30 +25,36 @@ def simulate_pv_system(
     }
     params_hash = hash_parameters(params)
 
-    # 1. Vérification du cache
+    # 1. Vérification du cache mémoire
     if use_cache:
         try:
             cached = cached_simulation_memory(params_hash)
-            logger.info(f"Using cached results for {params_hash}")
+            logger.info("Cache mémoire hit")
             return cached
         except ValueError:
-            pass  # Cache miss, continuer
+            pass  # Cache miss
 
-    # 2. Calcul complet si cache miss
+    # 2. Vérification de la base de données
+    if use_db:
+        db_results = db_manager.get_simulation(params_hash)
+        if db_results:
+            logger.info("Cache SGBD hit")
+            save_to_cache(params_hash, db_results)  # Mise en cache mémoire
+            return db_results
+
+    # 3. Calcul complet si aucun cache
     try:
         results = _original_pv_calculation(location, system, weather)
         
-        # Sauvegarde dans le cache
+        # Sauvegarde dans les systèmes de cache
         if use_cache:
             save_to_cache(params_hash, results)
-            logger.info(f"Saved to cache: {params_hash}")
+        
+        if use_db:
+            db_manager.save_simulation(params_hash, params, results)
         
         return results
 
     except Exception as e:
-        logger.error(f"Simulation failed: {str(e)}")
+        logger.error(f"Erreur de simulation : {str(e)}")
         raise
-
-def _original_pv_calculation(location, system, weather):
-    """Version originale des calculs (isolée pour clarté)"""
-    # [...] (Le code PVLib précédent)
