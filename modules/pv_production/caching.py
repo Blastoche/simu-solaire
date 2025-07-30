@@ -9,6 +9,7 @@ import pandas as pd
 import os
 from pathlib import Path
 from core.exceptions import PVCalculationError
+from .caching import hash_parameters, cached_simulation_memory, save_to_cache
 
 CACHE_DIR = Path("cache/pv_production")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
