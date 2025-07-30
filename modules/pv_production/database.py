@@ -7,6 +7,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import pandas as pd
+import os
+from pathlib import Path
 from config import DATABASE_URL  # À définir dans config/database.py
 
 Base = declarative_base()
