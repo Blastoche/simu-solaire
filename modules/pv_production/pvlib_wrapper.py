@@ -6,6 +6,10 @@ import logging
 db_manager = DatabaseManager()
 logger = logging.getLogger(__name__)
 
+def _original_pv_calculation(location: dict, system: dict, weather: pd.DataFrame) -> dict:
+    """Calcul PV original (fonction manquante dans votre code)"""
+    return simulate_pv_system(location, system, weather, use_cache=False)
+
 def simulate_pv_system(
     location: dict,
     system: dict,
