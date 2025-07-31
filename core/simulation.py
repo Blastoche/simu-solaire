@@ -176,4 +176,38 @@ class SimulationEngine:
             
         except Exception as e:
             logger.warning(f"Erreur analyse économique: {str(e)}")
-            # L'analyse économique n
+            # L'analyse économique n'est pas critique, on retourne des valeurs par défaut
+            return {
+                'autoconsumption_rate': 0.0,
+                'autonomy_rate': 0.0,
+                'annual_savings': 0.0,
+                'roi_years': float('inf'),
+                'error': 'Analyse économique indisponible'
+            }
+
+    def _compile_results(self, weather_response: Dict, economics: Dict) -> Dict:
+        """Compile tous les résultats en un dictionnaire final"""
+        return {
+            "production": self.pv_production,
+            "consumption": self.consumption,
+            "economics": economics,
+            "weather_source": weather_response.get('source', 'Unknown'),
+            "warning": weather_response.get('warning'),
+            "simulation_metadata": {
+                "weather_data_points": len(self.weather_data) if self.weather_data is not None else 0,
+                "production_data_points": len(self.pv_production.get('hourly_production_kw', [])),
+                "consumption_data_points": len(self.consumption.get('consumption_kw', [])),
+            }
+        }
+
+    def get_simulation_summary(self) -> Dict:
+        """Retourne un résumé de la dernière simulation"""
+        if not all([self.weather_data, self.pv_production, self.consumption]):
+            return {"status": "No simulation completed"}
+        
+        return {
+            "status": "Completed",
+            "annual_production_kwh": self.pv_production.get('annual_yield_kwh', 0),
+            "annual_consumption_kwh": self.consumption.get('annual_consumption_kwh', 0),
+            "weather_data_source": "Real" if self.weather_data is not None else "Mock"
+        }
