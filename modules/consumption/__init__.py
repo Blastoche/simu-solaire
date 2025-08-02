@@ -1,9 +1,7 @@
-# =================
-# modules/consumption/__init__.py - NOUVEAU FICHIER
-# =================
+# -*- coding: utf-8 -*-
 """
 Module de simulation de consommation électrique
 """
-from .appliance_models import simulate
+from .appliances_models import simulate
 
 __all__ = ['simulate']
