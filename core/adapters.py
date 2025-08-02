@@ -2,7 +2,10 @@
 """
 Adapte les entrées UI au format attendu par le moteur de simulation
 """
-from typing import Dict
+import logging
+from typing import Dict, List
+
+logger = logging.getLogger(__name__)
 
 def ui_to_simulation_params(ui_state: Dict) -> Dict:
     """Version robuste de la conversion UI vers paramètres simulation"""
