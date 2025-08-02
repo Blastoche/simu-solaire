@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Interface PVLib pour calculs de production solaire
-Version corrigée sans référence circulaire
+Interface PVLib pour calculs de production solaire - VERSION CORRIGÉE
 """
 import pandas as pd
 import numpy as np
@@ -10,14 +9,40 @@ from pvlib.temperature import TEMPERATURE_MODEL_PARAMETERS
 import logging
 
 from .caching import hash_parameters, cached_simulation_memory, save_to_cache
-from .database import DatabaseManager  # ✅ Import ajouté
+from .database import DatabaseManager
 from core.exceptions import PVCalculationError
 
 # Initialisation
 logger = logging.getLogger(__name__)
 
-# ✅ Initialisation du gestionnaire de base de données
+# Initialisation du gestionnaire de base de données
 db_manager = DatabaseManager()
+
+def _decompose_ghi(ghi, solar_elevation):
+    """
+    Décompose GHI en DNI et DHI en utilisant un modèle simple
+    """
+    # Modèle de Erbs et al. pour la fraction diffuse
+    kt = ghi / (1367 * np.sin(np.radians(np.maximum(solar_elevation, 1))))  # Indice de clarté
+    kt = np.clip(kt, 0, 1)
+    
+    # Fraction diffuse selon l'indice de clarté
+    diffuse_fraction = np.where(
+        kt <= 0.22, 1.0 - 0.09 * kt,
+        np.where(kt <= 0.8, 0.9511 - 0.1604 * kt + 4.388 * kt**2 - 16.638 * kt**3 + 12.336 * kt**4,
+                 0.165)
+    )
+    
+    dhi = ghi * diffuse_fraction
+    
+    # DNI calculé géométriquement
+    dni = np.where(
+        solar_elevation > 0,
+        (ghi - dhi) / np.sin(np.radians(solar_elevation)),
+        0
+    )
+    
+    return dni, dhi
 
 def _original_pv_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
     """
@@ -105,7 +130,36 @@ def _original_pv_calculation(location_params: dict, system_params: dict, weather
         logger.error(f"Erreur calcul PVLib: {str(e)}")
         raise PVCalculationError(f"Échec du calcul PV: {str(e)}")
 
-# ... (reste des fonctions inchangées)
+def estimate_energy_yield(location_params: dict, system_params: dict) -> float:
+    """
+    Estimation rapide de production annuelle sans données météo détaillées
+    """
+    try:
+        # Estimation basée sur l'irradiation moyenne par région
+        latitude = location_params['lat']
+        
+        # Irradiation annuelle estimée selon la latitude (Europe)
+        if latitude > 50:  # Nord de l'Europe
+            annual_irradiation = 1000  # kWh/m²/an
+        elif latitude > 45:  # Centre Europe
+            annual_irradiation = 1200
+        else:  # Sud Europe
+            annual_irradiation = 1400
+        
+        # Facteurs de correction
+        tilt_factor = 1.0  # Simplification : pas de correction d'inclinaison
+        azimuth_factor = 1.0  # Simplification : pas de correction d'orientation
+        system_efficiency = 0.85  # Rendement global du système
+        
+        # Calcul de la production estimée
+        annual_yield = (system_params['power_kw'] * annual_irradiation * 
+                       tilt_factor * azimuth_factor * system_efficiency)
+        
+        return annual_yield
+        
+    except Exception as e:
+        logger.error(f"Erreur estimation production: {str(e)}")
+        return 0.0
 
 def simulate_pv_system(
     location: dict,
@@ -146,7 +200,7 @@ def simulate_pv_system(
         except Exception as e:
             logger.warning(f"Erreur accès base de données: {e}")
 
-    # 3. Calcul complet si aucun cache - APPEL CORRIGÉ
+    # 3. Calcul complet si aucun cache
     try:
         results = _original_pv_calculation(location, system, weather)
         
