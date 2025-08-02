@@ -9,6 +9,9 @@ from pvlib import pvsystem, modelchain, location, irradiance, atmosphere
 from pvlib.temperature import TEMPERATURE_MODEL_PARAMETERS
 import logging
 
+from modules.pv_production.database import DatabaseManager
+db_manager = DatabaseManager()
+
 from .caching import hash_parameters, cached_simulation_memory, save_to_cache
 from core.exceptions import PVCalculationError
 
