@@ -2,6 +2,7 @@
 """
 Gestion des pertes par masques solaires (ombrages)
 """
+import pandas as pd
 import numpy as np
 from pvlib.shading import masking_angle
 
