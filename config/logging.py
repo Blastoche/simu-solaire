@@ -33,3 +33,6 @@ def setup_logging(level=logging.INFO, log_file=None):
         root_logger.addHandler(file_handler)
     
     return root_logger
+    
+# Initialisation par défaut
+setup_logging(level=logging.INFO, log_file="logs/solar_simulator.log")
