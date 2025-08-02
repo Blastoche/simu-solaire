@@ -19,12 +19,6 @@ sqlalchemy>=1.4.0
 # API et requêtes
 requests>=2.28.0
 
-# Utilitaires
-pathlib
-hashlib
-functools
-logging
-json
-datetime
-typing
-"""
+# Gestion des fichiers
+pathlib2;python_version<"3.4"
+
