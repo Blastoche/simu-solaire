@@ -3,6 +3,7 @@
 Calculs de dégradation et rendement à long terme
 """
 import pandas as pd
+import numpy as np
 
 def calculate_yearly_degradation(
     initial_yield: float,
@@ -19,10 +20,10 @@ def calculate_yearly_degradation(
     Returns:
         Série pandas avec production par année
     """
-    return pd.Series(
+    return pd.Series([
         initial_yield * (1 - degradation_rate) ** year
         for year in range(years)
-    )
+    ])
 
 def calculate_performance_ratio(
     actual_yield: float,
@@ -42,5 +43,5 @@ def calculate_performance_ratio(
         effective_losses = 1 - sum(losses.values())
     else:
         effective_losses = 1.0
-        
+    
     return (actual_yield / expected_yield) * effective_losses
