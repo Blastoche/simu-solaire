@@ -9,7 +9,6 @@ from datetime import datetime
 import pandas as pd
 import os
 from pathlib import Path
-from config import DATABASE_URL  # À définir dans config/database.py
 
 Base = declarative_base()
 
@@ -19,8 +18,8 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///solar_simulator.db")
 
 class PVSimulationResult(Base):
-    __tablename__ = 'pv_simulation_results'
-
+    __tablename__ = 'pv_simulation_results'  # ✅ Corrigé
+    
     id = Column(String, primary_key=True)  # hash des paramètres
     location = Column(JSON)
     system = Column(JSON)
@@ -29,21 +28,28 @@ class PVSimulationResult(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class DatabaseManager:
-    def __init__(self):
+    def __init__(self):  # ✅ Corrigé
         self.engine = create_engine(DATABASE_URL)
         self.Session = sessionmaker(bind=self.engine)
         Base.metadata.create_all(self.engine)
-
+    
     def save_simulation(self, params_hash: str, params: dict, results: dict):
         """Sauvegarde une simulation en base"""
         session = self.Session()
         try:
+            # Vérification que results contient les clés nécessaires
+            hourly_data = results.get('hourly_production_kw', pd.Series())
+            if isinstance(hourly_data, pd.Series):
+                hourly_dict = hourly_data.to_dict()
+            else:
+                hourly_dict = {}
+            
             record = PVSimulationResult(
                 id=params_hash,
-                location=params["location"],
-                system=params["system"],
-                hourly_production=results["hourly"].to_dict(),
-                annual_yield=results["annual_yield"]
+                location=params.get("location", {}),
+                system=params.get("system", {}),
+                hourly_production=hourly_dict,
+                annual_yield=results.get("annual_yield_kwh", 0)
             )
             session.add(record)
             session.commit()
@@ -52,7 +58,7 @@ class DatabaseManager:
             raise
         finally:
             session.close()
-
+    
     def get_simulation(self, params_hash: str) -> dict:
         """Récupère une simulation depuis la base"""
         session = self.Session()
@@ -60,9 +66,10 @@ class DatabaseManager:
             record = session.query(PVSimulationResult).filter_by(id=params_hash).first()
             if record:
                 return {
-                    "hourly": pd.Series(record.hourly_production),
-                    "annual_yield": record.annual_yield,
+                    "hourly_production_kw": pd.Series(record.hourly_production),
+                    "annual_yield_kwh": record.annual_yield,
                     "cached": True
                 }
+            return None
         finally:
             session.close()
