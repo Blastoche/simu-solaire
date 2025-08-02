@@ -1,17 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-Point d'entrée de l'application Streamlit
+Point d'entrée de l'application Streamlit - VERSION CORRIGÉE
 """
 import streamlit as st
 import logging
-from core.simulation import SimulationEngine
-from core.adapters import ui_to_simulation_params
-from core.exceptions import SimulationError
-from ui.sidebar import build_sidebar
-from ui.results import display_results
+import sys
+from pathlib import Path
+
+# Ajout du répertoire racine au path Python
+root_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(root_dir))
+
+# Imports du simulateur
+try:
+    from core.simulation import SimulationEngine
+    from core.adapters import ui_to_simulation_params
+    from core.exceptions import SimulationError
+    from app.ui.sidebar import build_sidebar
+    from app.ui.results import display_results
+    from config.logging import setup_logging
+except ImportError as e:
+    st.error(f"Erreur d'import: {e}")
+    st.error("Vérifiez que tous les modules sont présents et correctement configurés")
+    st.stop()
 
 # Configuration logging
-logging.basicConfig(level=logging.INFO)
+setup_logging(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main():
@@ -32,6 +46,7 @@ def main():
         build_sidebar()  # Remplit st.session_state
     except Exception as e:
         st.error(f"Erreur interface utilisateur: {str(e)}")
+        logger.error(f"Erreur sidebar: {e}", exc_info=True)
         st.stop()
 
     # 2. Validation et conversion des paramètres UI
@@ -47,7 +62,8 @@ def main():
         params = ui_to_simulation_params(st.session_state)
         
         # Ajout de paramètres par défaut si manquants
-        params.setdefault('investment_cost', params['pv_system']['power_kw'] * 2500)  # 2500€/kWc
+        if 'pv_system' in params and 'power_kw' in params['pv_system']:
+            params.setdefault('investment_cost', params['pv_system']['power_kw'] * 2500)  # 2500€/kWc
         params.setdefault('use_mock_weather', False)
         
     except KeyError as e:
@@ -55,6 +71,7 @@ def main():
         st.stop()
     except Exception as e:
         st.error(f"Erreur validation paramètres: {str(e)}")
+        logger.error(f"Erreur paramètres: {e}", exc_info=True)
         st.stop()
 
     # 3. Affichage des paramètres (debug)
@@ -66,7 +83,7 @@ def main():
     
     with col1:
         run_simulation = st.button("🚀 Lancer la simulation", type="primary")
-        use_mock = st.checkbox("Mode test (données simulées)", value=False)
+        use_mock = st.checkbox("Mode test (données simulées)", value=True)  # Par défaut en mode test
     
     with col2:
         if st.session_state.simulation_results:
@@ -103,7 +120,11 @@ def main():
                 progress_bar.progress(100)
                 status_text.text("✅ Simulation terminée avec succès!")
                 
-                # Affichage immédiat des résultats
+                # Nettoyage de l'interface
+                progress_bar.empty()
+                status_text.empty()
+                
+                # Rerun pour afficher les résultats
                 st.rerun()
                 
             except SimulationError as e:
@@ -113,6 +134,14 @@ def main():
             except Exception as e:
                 st.error(f"❌ Erreur inattendue: {str(e)}")
                 logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+                
+                # Affichage d'informations de debug
+                with st.expander("🐛 Informations de debug"):
+                    st.write("Type d'erreur:", type(e).__name__)
+                    st.write("Message:", str(e))
+                    if hasattr(e, '__traceback__'):
+                        import traceback
+                        st.code(traceback.format_exc())
                 
             finally:
                 progress_bar.empty()
@@ -130,6 +159,7 @@ def main():
                     
         except Exception as e:
             st.error(f"Erreur affichage résultats: {str(e)}")
+            logger.error(f"Erreur affichage: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
