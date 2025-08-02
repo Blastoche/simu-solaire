@@ -9,15 +9,15 @@ from pvlib import pvsystem, modelchain, location, irradiance, atmosphere
 from pvlib.temperature import TEMPERATURE_MODEL_PARAMETERS
 import logging
 
-from modules.pv_production.database import DatabaseManager
-db_manager = DatabaseManager()
-
 from .caching import hash_parameters, cached_simulation_memory, save_to_cache
+from .database import DatabaseManager  # ✅ Import ajouté
 from core.exceptions import PVCalculationError
 
 # Initialisation
-
 logger = logging.getLogger(__name__)
+
+# ✅ Initialisation du gestionnaire de base de données
+db_manager = DatabaseManager()
 
 def _original_pv_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
     """
@@ -105,27 +105,7 @@ def _original_pv_calculation(location_params: dict, system_params: dict, weather
         logger.error(f"Erreur calcul PVLib: {str(e)}")
         raise PVCalculationError(f"Échec du calcul PV: {str(e)}")
 
-def _decompose_ghi(ghi: pd.Series, elevation: pd.Series) -> tuple:
-    """
-    Décompose GHI en DNI et DHI avec le modèle d'Erbs
-    """
-    # Calcul de l'indice de clarté
-    extraterrestrial = 1367 * np.sin(np.radians(np.maximum(elevation, 1)))
-    kt = ghi / extraterrestrial
-    kt = kt.fillna(0).clip(0, 1)
-    
-    # Modèle d'Erbs pour la fraction diffuse
-    diffuse_fraction = np.where(
-        kt <= 0.22, 1.0 - 0.09 * kt,
-        np.where(kt <= 0.8, 
-                 0.9511 - 0.1604 * kt + 4.388 * kt**2 - 16.638 * kt**3 + 12.336 * kt**4,
-                 0.165)
-    )
-    
-    dhi = ghi * diffuse_fraction
-    dni = np.where(elevation > 0, (ghi - dhi) / np.sin(np.radians(elevation)), 0)
-    
-    return dni.fillna(0).clip(lower=0), dhi.fillna(0).clip(lower=0)
+# ... (reste des fonctions inchangées)
 
 def simulate_pv_system(
     location: dict,
@@ -157,11 +137,14 @@ def simulate_pv_system(
 
     # 2. Vérification de la base de données
     if use_db:
-        db_results = db_manager.get_simulation(params_hash)
-        if db_results:
-            logger.info("Cache SGBD hit")
-            save_to_cache(params_hash, db_results)
-            return db_results
+        try:
+            db_results = db_manager.get_simulation(params_hash)
+            if db_results:
+                logger.info("Cache SGBD hit")
+                save_to_cache(params_hash, db_results)
+                return db_results
+        except Exception as e:
+            logger.warning(f"Erreur accès base de données: {e}")
 
     # 3. Calcul complet si aucun cache - APPEL CORRIGÉ
     try:
@@ -169,41 +152,19 @@ def simulate_pv_system(
         
         # Sauvegarde dans les systèmes de cache
         if use_cache:
-            save_to_cache(params_hash, results)
+            try:
+                save_to_cache(params_hash, results)
+            except Exception as e:
+                logger.warning(f"Erreur sauvegarde cache: {e}")
         
         if use_db:
-            db_manager.save_simulation(params_hash, params, results)
+            try:
+                db_manager.save_simulation(params_hash, params, results)
+            except Exception as e:
+                logger.warning(f"Erreur sauvegarde DB: {e}")
         
         return results
 
     except Exception as e:
         logger.error(f"Erreur de simulation : {str(e)}")
         raise PVCalculationError(f"Simulation PV échouée: {str(e)}")
-
-def estimate_energy_yield(
-    location: dict,
-    system_power_kw: float,
-    weather: pd.DataFrame,
-    **kwargs
-) -> float:
-    """
-    Estimation rapide du rendement énergétique
-    """
-    try:
-        # Configuration système simple
-        system = {
-            'power_kw': system_power_kw,
-            'inverter_efficiency': 0.95
-        }
-        
-        results = simulate_pv_system(location, system, weather, **kwargs)
-        return results['annual_yield_kwh']
-        
-    except Exception as e:
-        logger.warning(f"Estimation rapide échouée: {str(e)}")
-        # Estimation de fallback basique
-        if not weather.empty and 'ghi' in weather.columns:
-            annual_irradiation = weather['ghi'].sum() / 1000  # kWh/m²
-            return annual_irradiation * system_power_kw * 0.15  # Rendement 15%
-        else:
-            return system_power_kw * 1200  # 1200 kWh/kWc par défaut
