@@ -9,12 +9,11 @@ from pvlib import pvsystem, modelchain, location, irradiance, atmosphere
 from pvlib.temperature import TEMPERATURE_MODEL_PARAMETERS
 import logging
 
-from .database import DatabaseManager
 from .caching import hash_parameters, cached_simulation_memory, save_to_cache
 from core.exceptions import PVCalculationError
 
 # Initialisation
-db_manager = DatabaseManager()
+
 logger = logging.getLogger(__name__)
 
 def _original_pv_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
