@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Configuration de la base de données
-Exemple pour PostgreSQL :
-postgresql://user:password@localhost:5432/solar_db
 """
 import os
 
