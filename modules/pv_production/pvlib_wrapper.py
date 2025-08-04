@@ -57,25 +57,36 @@ def _original_pv_calculation(location_params: dict, system_params: dict, weather
             altitude=location_params.get('altitude', 100)
         )
         
-        # 2. Configuration du système PV
+        # 2. Configuration du système PV avec paramètres de température explicites
+        
+        # Paramètres du module avec modèle de température SAPM
         module_params = {
             'pdc0': system_params['power_kw'] * 1000,  # Puissance DC en watts
             'gamma_pdc': -0.004,  # Coefficient de température (%/°C)
+            # Ajout des paramètres nécessaires pour le modèle SAPM
+            'A': 0.031,  # Paramètre SAPM
+            'B': -1.26,  # Paramètre SAPM
+            'C': 0.34,   # Paramètre SAPM (pour modules en verre/cellule/verre)
         }
         
+        # Paramètres de l'onduleur
         inverter_params = {
             'pdc0': system_params['power_kw'] * 1000,
-            'eta_inv_nom': system_params.get('inverter_efficiency', 0.95)
+            'eta_inv_nom': system_params.get('inverter_efficiency', 0.95),
+            'eta_inv_ref': system_params.get('inverter_efficiency', 0.95)
         }
         
-        # 3. Configuration du système complet
+        # 3. Configuration du système complet avec paramètres explicites
         system = pvsystem.PVSystem(
             surface_tilt=location_params.get('tilt', 30),
             surface_azimuth=location_params.get('azimuth', 180),
             module_parameters=module_params,
             inverter_parameters=inverter_params,
             modules_per_string=1,
-            strings_per_inverter=1
+            strings_per_inverter=1,
+            # Ajout explicite du modèle de montage et type de module
+            racking_model='open_rack',  # Montage en toiture ventilée
+            module_type='glass_glass'   # Type de module standard
         )
         
         # 4. Préparation des données météo pour PVLib
@@ -97,13 +108,19 @@ def _original_pv_calculation(location_params: dict, system_params: dict, weather
                 weather_pvlib[col] = default_val
                 logger.warning(f"Colonne {col} manquante, valeur par défaut: {default_val}")
         
-        # 5. Création du modèle de chaîne de production
+        # 5. Création du modèle de chaîne de production avec paramètres explicites
         mc = modelchain.ModelChain(
             system, site,
             aoi_model='physical',
             spectral_model='no_loss',
-            temperature_model='sapm',
-            losses_model='pvwatts'
+            temperature_model='sapm',  # Modèle de température explicite
+            losses_model='pvwatts',
+            # Paramètres additionnels pour le modèle de température
+            temperature_model_parameters={
+                'A': module_params['A'],
+                'B': module_params['B'], 
+                'C': module_params['C']
+            }
         )
         
         # 6. Exécution de la simulation
@@ -128,7 +145,67 @@ def _original_pv_calculation(location_params: dict, system_params: dict, weather
         
     except Exception as e:
         logger.error(f"Erreur calcul PVLib: {str(e)}")
-        raise PVCalculationError(f"Échec du calcul PV: {str(e)}")
+        # En cas d'erreur, essayer une approche simplifiée
+        logger.info("Tentative avec configuration simplifiée...")
+        return _fallback_pv_calculation(location_params, system_params, weather)
+
+def _fallback_pv_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
+    """
+    Calcul PV de secours avec configuration simplifiée
+    """
+    try:
+        # Configuration minimale qui devrait fonctionner
+        site = location.Location(
+            latitude=location_params['lat'],
+            longitude=location_params['lon'],
+            tz='UTC'
+        )
+        
+        # Système simplifié
+        system = pvsystem.PVSystem(
+            surface_tilt=30,
+            surface_azimuth=180,
+            module_parameters={'pdc0': system_params['power_kw'] * 1000, 'gamma_pdc': -0.004},
+            inverter_parameters={'pdc0': system_params['power_kw'] * 1000, 'eta_inv_nom': 0.95}
+        )
+        
+        # Données météo minimales
+        if 'ghi' not in weather.columns:
+            raise PVCalculationError("Données météo insuffisantes")
+        
+        weather_simple = weather[['ghi']].copy()
+        weather_simple['temp_air'] = weather.get('temp_air', 20)
+        weather_simple['wind_speed'] = weather.get('wind_speed', 1)
+        
+        # Si pas de DNI/DHI, approximation simple
+        if 'dni' not in weather_simple.columns:
+            weather_simple['dni'] = weather_simple['ghi'] * 0.8  # Approximation
+            weather_simple['dhi'] = weather_simple['ghi'] * 0.2
+        
+        # ModelChain avec configuration par défaut
+        mc = modelchain.ModelChain.with_pvwatts(
+            system, site,
+            module_parameters={'pdc0': system_params['power_kw'] * 1000, 'gamma_pdc': -0.004},
+            inverter_parameters={'pdc0': system_params['power_kw'] * 1000}
+        )
+        
+        mc.run_model(weather_simple)
+        
+        ac_power_kw = mc.results.ac / 1000
+        ac_power_kw = ac_power_kw.fillna(0).clip(lower=0)
+        
+        return {
+            'hourly_production_kw': ac_power_kw,
+            'annual_yield_kwh': float(ac_power_kw.sum()),
+            'capacity_factor': float(ac_power_kw.mean() / system_params['power_kw']),
+            'peak_power_kw': float(ac_power_kw.max()),
+            'cached': False,
+            'fallback_used': True
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur calcul fallback: {str(e)}")
+        raise PVCalculationError(f"Impossible de calculer la production PV: {str(e)}")
 
 def estimate_energy_yield(location_params: dict, system_params: dict) -> float:
     """
