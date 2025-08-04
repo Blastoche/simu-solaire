@@ -15,7 +15,7 @@ sys.path.insert(0, str(root_dir))
 try:
     from core.simulation import SimulationEngine
     from core.adapters import ui_to_simulation_params
-    from core.exceptions import SimulationError
+from core.exceptions import SolarSimulatorError as SimulationError
     from app.ui.sidebar import build_sidebar
     from app.ui.results import display_results
     from config.logging import setup_logging
