@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Interface PVLib pour calculs de production solaire - VERSION CORRIGÉE
+Interface PVLib pour calculs de production solaire - VERSION CORRIGÉE AVEC PVWATTS
 """
 import pandas as pd
 import numpy as np
@@ -44,9 +44,113 @@ def _decompose_ghi(ghi, solar_elevation):
     
     return dni, dhi
 
+def _pvwatts_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
+    """
+    Calcul PV avec le modèle PVWatts simplifié - PLUS ROBUSTE
+    """
+    try:
+        logger.info("Utilisation du modèle PVWatts simplifié")
+        
+        # 1. Création de la localisation
+        site = location.Location(
+            latitude=location_params['lat'],
+            longitude=location_params['lon'],
+            tz='UTC',  # UTC pour éviter les problèmes de timezone
+            altitude=location_params.get('altitude', 100)
+        )
+        
+        # 2. Paramètres PVWatts standard
+        pvwatts_params = {
+            'pdc0': system_params['power_kw'] * 1000,  # Puissance DC en watts
+            'gamma_pdc': -0.004,  # Coefficient de température standard
+        }
+        
+        # 3. Création du système avec PVWatts
+        system = pvsystem.PVSystem(
+            surface_tilt=location_params.get('tilt', 30),
+            surface_azimuth=location_params.get('azimuth', 180),
+            module_parameters=pvwatts_params,
+            inverter_parameters={'pdc0': system_params['power_kw'] * 1000, 'eta_inv_nom': 0.95}
+        )
+        
+        # 4. Préparation des données météo minimales
+        weather_clean = weather.copy()
+        
+        # Colonnes requises pour PVWatts
+        required_columns = ['ghi', 'temp_air', 'wind_speed']
+        
+        # Vérification et calcul des composantes manquantes
+        if 'ghi' not in weather_clean.columns:
+            raise PVCalculationError("Colonne GHI manquante dans les données météo")
+        
+        # Ajout des colonnes manquantes avec valeurs par défaut
+        if 'temp_air' not in weather_clean.columns:
+            weather_clean['temp_air'] = 20  # Température par défaut
+            logger.warning("Température de l'air manquante, utilisation de 20°C")
+        
+        if 'wind_speed' not in weather_clean.columns:
+            weather_clean['wind_speed'] = 1  # Vitesse de vent par défaut
+            logger.warning("Vitesse du vent manquante, utilisation de 1 m/s")
+        
+        # DNI et DHI si manquants
+        if 'dni' not in weather_clean.columns or 'dhi' not in weather_clean.columns:
+            logger.info("Calcul DNI/DHI à partir de GHI")
+            solar_position = site.get_solarposition(weather_clean.index)
+            weather_clean['dni'], weather_clean['dhi'] = _decompose_ghi(
+                weather_clean['ghi'], solar_position['elevation']
+            )
+        
+        # Nettoyage des données
+        for col in ['ghi', 'dni', 'dhi']:
+            if col in weather_clean.columns:
+                weather_clean[col] = weather_clean[col].fillna(0).clip(lower=0)
+        
+        weather_clean['temp_air'] = weather_clean['temp_air'].fillna(20)
+        weather_clean['wind_speed'] = weather_clean['wind_speed'].fillna(1).clip(lower=0)
+        
+        # 5. Création du ModelChain avec PVWatts
+        mc = modelchain.ModelChain.with_pvwatts(
+            system, site,
+            module_parameters=pvwatts_params,
+            inverter_parameters={'pdc0': system_params['power_kw'] * 1000, 'eta_inv_nom': 0.95}
+        )
+        
+        # 6. Exécution de la simulation
+        logger.info("Lancement simulation PVWatts...")
+        mc.run_model(weather_clean)
+        
+        # 7. Extraction des résultats
+        if mc.results.ac is None:
+            raise PVCalculationError("Résultats de simulation vides")
+        
+        ac_power_kw = mc.results.ac / 1000  # Conversion W -> kW
+        
+        # Nettoyage des valeurs aberrantes
+        ac_power_kw = ac_power_kw.fillna(0).clip(lower=0)
+        
+        # Limitation par la puissance installée (avec marge pour les pics)
+        max_power = system_params['power_kw'] * 1.2  # 20% de marge
+        ac_power_kw = ac_power_kw.clip(upper=max_power)
+        
+        results = {
+            'hourly_production_kw': ac_power_kw,
+            'annual_yield_kwh': float(ac_power_kw.sum()),
+            'capacity_factor': float(ac_power_kw.mean() / system_params['power_kw']),
+            'peak_power_kw': float(ac_power_kw.max()),
+            'cached': False,
+            'model_used': 'PVWatts'
+        }
+        
+        logger.info(f"Simulation PVWatts terminée: {results['annual_yield_kwh']:.0f} kWh/an")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Erreur calcul PVWatts: {str(e)}")
+        raise PVCalculationError(f"Calcul PVWatts échoué: {str(e)}")
+
 def _original_pv_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
     """
-    Calcul PV réel avec PVLib - FONCTION CORRIGÉE
+    Calcul PV réel avec PVLib - FONCTION CORRIGÉE MAIS OPTIONNELLE
     """
     try:
         # 1. Création de la localisation
@@ -137,75 +241,18 @@ def _original_pv_calculation(location_params: dict, system_params: dict, weather
             'annual_yield_kwh': float(ac_power_kw.sum()),
             'capacity_factor': float(ac_power_kw.mean() / system_params['power_kw']),
             'peak_power_kw': float(ac_power_kw.max()),
-            'cached': False
+            'cached': False,
+            'model_used': 'Advanced'
         }
         
-        logger.info(f"Simulation PV terminée: {results['annual_yield_kwh']:.0f} kWh/an")
+        logger.info(f"Simulation PV avancée terminée: {results['annual_yield_kwh']:.0f} kWh/an")
         return results
         
     except Exception as e:
-        logger.error(f"Erreur calcul PVLib: {str(e)}")
-        # En cas d'erreur, essayer une approche simplifiée
-        logger.info("Tentative avec configuration simplifiée...")
-        return _fallback_pv_calculation(location_params, system_params, weather)
-
-def _fallback_pv_calculation(location_params: dict, system_params: dict, weather: pd.DataFrame) -> dict:
-    """
-    Calcul PV de secours avec configuration simplifiée
-    """
-    try:
-        # Configuration minimale qui devrait fonctionner
-        site = location.Location(
-            latitude=location_params['lat'],
-            longitude=location_params['lon'],
-            tz='UTC'
-        )
-        
-        # Système simplifié
-        system = pvsystem.PVSystem(
-            surface_tilt=30,
-            surface_azimuth=180,
-            module_parameters={'pdc0': system_params['power_kw'] * 1000, 'gamma_pdc': -0.004},
-            inverter_parameters={'pdc0': system_params['power_kw'] * 1000, 'eta_inv_nom': 0.95}
-        )
-        
-        # Données météo minimales
-        if 'ghi' not in weather.columns:
-            raise PVCalculationError("Données météo insuffisantes")
-        
-        weather_simple = weather[['ghi']].copy()
-        weather_simple['temp_air'] = weather.get('temp_air', 20)
-        weather_simple['wind_speed'] = weather.get('wind_speed', 1)
-        
-        # Si pas de DNI/DHI, approximation simple
-        if 'dni' not in weather_simple.columns:
-            weather_simple['dni'] = weather_simple['ghi'] * 0.8  # Approximation
-            weather_simple['dhi'] = weather_simple['ghi'] * 0.2
-        
-        # ModelChain avec configuration par défaut
-        mc = modelchain.ModelChain.with_pvwatts(
-            system, site,
-            module_parameters={'pdc0': system_params['power_kw'] * 1000, 'gamma_pdc': -0.004},
-            inverter_parameters={'pdc0': system_params['power_kw'] * 1000}
-        )
-        
-        mc.run_model(weather_simple)
-        
-        ac_power_kw = mc.results.ac / 1000
-        ac_power_kw = ac_power_kw.fillna(0).clip(lower=0)
-        
-        return {
-            'hourly_production_kw': ac_power_kw,
-            'annual_yield_kwh': float(ac_power_kw.sum()),
-            'capacity_factor': float(ac_power_kw.mean() / system_params['power_kw']),
-            'peak_power_kw': float(ac_power_kw.max()),
-            'cached': False,
-            'fallback_used': True
-        }
-        
-    except Exception as e:
-        logger.error(f"Erreur calcul fallback: {str(e)}")
-        raise PVCalculationError(f"Impossible de calculer la production PV: {str(e)}")
+        logger.error(f"Erreur calcul PVLib avancé: {str(e)}")
+        # En cas d'erreur, on bascule sur PVWatts
+        logger.info("Basculement vers PVWatts...")
+        return _pvwatts_calculation(location_params, system_params, weather)
 
 def estimate_energy_yield(location_params: dict, system_params: dict) -> float:
     """
@@ -244,16 +291,18 @@ def simulate_pv_system(
     weather: pd.DataFrame,
     use_cache: bool = True,
     use_db: bool = True,
+    use_simple_model: bool = False,  # NOUVEAU PARAMÈTRE
     **kwargs
 ) -> dict:
     """
-    Simulation PV avec cache et base de données - VERSION CORRIGÉE
+    Simulation PV avec cache et base de données - VERSION CORRIGÉE AVEC OPTION SIMPLE
     """
     # Génération du hash unique
     params = {
         "location": location,
         "system": system,
-        "weather_hash": hash_parameters(weather.mean().to_dict() if not weather.empty else {})
+        "weather_hash": hash_parameters(weather.mean().to_dict() if not weather.empty else {}),
+        "use_simple_model": use_simple_model  # Inclus dans le hash
     }
     params_hash = hash_parameters(params)
 
@@ -279,7 +328,17 @@ def simulate_pv_system(
 
     # 3. Calcul complet si aucun cache
     try:
-        results = _original_pv_calculation(location, system, weather)
+        # CHOIX DU MODÈLE
+        if use_simple_model:
+            logger.info("Utilisation du modèle PVWatts simplifié")
+            results = _pvwatts_calculation(location, system, weather)
+        else:
+            logger.info("Tentative avec modèle avancé, fallback PVWatts si échec")
+            try:
+                results = _original_pv_calculation(location, system, weather)
+            except Exception as e:
+                logger.warning(f"Modèle avancé échoué: {e}, basculement vers PVWatts")
+                results = _pvwatts_calculation(location, system, weather)
         
         # Sauvegarde dans les systèmes de cache
         if use_cache:
