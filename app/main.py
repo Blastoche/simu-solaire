@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Point d'entrée de l'application Streamlit - VERSION CORRIGÉE
+Point d'entrée de l'application Streamlit - VERSION CORRIGÉE AVEC MODÈLE SIMPLE
 """
 import streamlit as st
 import logging
@@ -78,19 +78,30 @@ def main():
     with st.expander("🔍 Paramètres de simulation", expanded=False):
         st.json(params)
 
-    # 4. Lancement de la simulation
-    col1, col2 = st.columns([1, 4])
+    # 4. Options de simulation
+    st.header("⚙️ Options de simulation")
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        run_simulation = st.button("🚀 Lancer la simulation", type="primary")
         use_mock = st.checkbox("Mode test (données simulées)", value=True)  # Par défaut en mode test
     
     with col2:
+        use_simple_model = st.checkbox(
+            "Modèle PV simplifié", 
+            value=True,  # Par défaut activé pour éviter les erreurs
+            help="Utilise le modèle PVWatts plus robuste et rapide"
+        )
+    
+    with col3:
         if st.session_state.simulation_results:
             st.success("✅ Dernière simulation réussie")
-        
+
+    # 5. Lancement de la simulation
+    run_simulation = st.button("🚀 Lancer la simulation", type="primary")
+    
     if run_simulation:
         params['use_mock_weather'] = use_mock
+        params['use_simple_model'] = use_simple_model  # NOUVEAU PARAMÈTRE
         
         with st.spinner("🔄 Simulation en cours..."):
             progress_bar = st.progress(0)
@@ -107,7 +118,10 @@ def main():
                 progress_bar.progress(30)
                 
                 # Lancement simulation
-                status_text.text("Calcul de la production solaire...")
+                if use_simple_model:
+                    status_text.text("Calcul de la production solaire (modèle PVWatts)...")
+                else:
+                    status_text.text("Calcul de la production solaire (modèle avancé)...")
                 progress_bar.progress(60)
                 
                 results = engine.run(params)
@@ -120,6 +134,10 @@ def main():
                 progress_bar.progress(100)
                 status_text.text("✅ Simulation terminée avec succès!")
                 
+                # Affichage du modèle utilisé
+                model_used = results.get('production', {}).get('model_used', 'Unknown')
+                st.info(f"📊 Modèle PV utilisé: {model_used}")
+                
                 # Nettoyage de l'interface
                 progress_bar.empty()
                 status_text.empty()
@@ -130,6 +148,10 @@ def main():
             except SimulationError as e:
                 st.error(f"❌ Erreur de simulation: {str(e)}")
                 logger.error(f"SimulationError: {str(e)}")
+                
+                # Suggestion d'utiliser le modèle simple si pas déjà activé
+                if not use_simple_model:
+                    st.info("💡 Conseil: Essayez d'activer l'option 'Modèle PV simplifié' pour plus de robustesse")
                 
             except Exception as e:
                 st.error(f"❌ Erreur inattendue: {str(e)}")
@@ -147,7 +169,7 @@ def main():
                 progress_bar.empty()
                 status_text.empty()
 
-    # 5. Affichage des résultats si disponibles
+    # 6. Affichage des résultats si disponibles
     if st.session_state.simulation_results:
         try:
             display_results(st.session_state.simulation_results)
@@ -160,6 +182,31 @@ def main():
         except Exception as e:
             st.error(f"Erreur affichage résultats: {str(e)}")
             logger.error(f"Erreur affichage: {e}", exc_info=True)
+
+    # 7. Aide et documentation
+    with st.expander("📚 Aide et conseils"):
+        st.markdown("""
+        ### Conseils d'utilisation :
+        
+        **🔧 Modèle PV simplifié**
+        - ✅ Recommandé pour la plupart des cas
+        - Plus robuste et rapide
+        - Utilise le modèle PVWatts éprouvé
+        
+        **⚡ Modèle PV avancé**
+        - Plus précis mais plus sensible aux erreurs
+        - Utilise des modèles thermiques détaillés
+        - Désactivez en cas d'erreur de simulation
+        
+        **🌤️ Données météo**
+        - Mode test : données simulées réalistes
+        - Mode réel : données PVGIS (nécessite connexion)
+        
+        **🏠 Paramètres importants**
+        - DPE : impact majeur sur la consommation
+        - Orientation Sud recommandée pour production maximale
+        - Inclinaison 30° optimale pour la France
+        """)
 
 if __name__ == "__main__":
     main()
